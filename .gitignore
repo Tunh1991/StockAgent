@@ -1,0 +1,13 @@
+# Bí mật - KHÔNG commit (chứa GEMINI_API_KEY)
+.env
+
+# Dữ liệu cá nhân / tạo ra khi chạy
+data/
+signals*.jsonl
+
+# Python / công cụ
+__pycache__/
+*.pyc
+.pytest_cache/
+*.tmp
+.superpowers/
