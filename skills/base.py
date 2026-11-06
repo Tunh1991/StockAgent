@@ -59,6 +59,8 @@ class Skill:
     name = "base"
     title = "Base"
     DEFAULTS: dict = {}
+    # Kiểm tra khoảng giá trị cho từng khóa config: key -> (hàm kiểm tra, mô tả)
+    VALID: dict = {}
 
     def __init__(self, folder: Path):
         folder = Path(folder)
@@ -83,10 +85,13 @@ class Skill:
             ok_type = isinstance(value, type(default)) and not isinstance(value, bool)
             if isinstance(default, float) and isinstance(value, int) and not isinstance(value, bool):
                 ok_type = True
-            if ok_type:
-                config[key] = value
-            else:
+            if not ok_type:
                 logger.warning("%s: %s=%r sai kiểu, dùng mặc định %r", self.name, key, value, default)
+            elif key in self.VALID and not self.VALID[key][0](value):
+                logger.warning("%s: %s=%r ngoài khoảng hợp lệ (%s), dùng mặc định %r",
+                               self.name, key, value, self.VALID[key][1], default)
+            else:
+                config[key] = value
         return config
 
     def evaluate(self, ctx: SkillContext) -> SkillResult:
@@ -94,6 +99,14 @@ class Skill:
 
     def adjust(self, final: dict, result: SkillResult) -> list[str]:
         return []
+
+    def reference_values(self, result: SkillResult) -> tuple[list[float], list[float]]:
+        """
+        Số liệu hợp lệ cho luật S3: (dạng nguyên, chỉ khớp khi viết kèm dấu %).
+        Mặc định: mọi fact theo giá trị gốc (trừ passed_count), không có dạng %.
+        """
+        plain = [float(v) for k, v in result.facts.items() if k != "passed_count"]
+        return plain, []
 
 
 _STATUS = {True: "[ĐẠT]", False: "[KHÔNG ĐẠT]", None: "[KHÔNG ĐỦ DỮ LIỆU]"}

@@ -24,6 +24,17 @@ class TrendTemplateSkill(Skill):
     title = "Trend Template"
     DEFAULTS = {"ma200_rising_days": 22, "min_above_low": 0.30, "max_below_high": 0.25,
                 "week52_bars": 250, "rs_lookback": 126, "min_pass": 6, "confidence_cap": 6.0}
+    VALID = {
+        "ma200_rising_days": (lambda v: v >= 1, "số nguyên ≥ 1"),
+        "week52_bars": (lambda v: v >= 20, "số nguyên ≥ 20"),
+        "rs_lookback": (lambda v: v >= 5, "số nguyên ≥ 5"),
+        "min_above_low": (lambda v: v >= 0, "≥ 0"),
+        "max_below_high": (lambda v: 0 <= v < 1, "trong [0, 1)"),
+        "min_pass": (lambda v: 1 <= v <= 8, "từ 1 đến 8"),
+        "confidence_cap": (lambda v: 1 <= v <= 10, "từ 1 đến 10"),
+    }
+    PERCENT_FACTS = ("pct_below_high", "pct_above_low", "ret_6m", "index_ret_6m")
+    PERCENT_CONFIG = ("min_above_low", "max_below_high")
 
     def evaluate(self, ctx: SkillContext) -> SkillResult:
         cfg = self.config
@@ -119,6 +130,13 @@ class TrendTemplateSkill(Skill):
         if s0 <= 0 or i0 <= 0:
             return None, None
         return float(s.iloc[-1] / s0 - 1), float(i.iloc[-1] / i0 - 1)
+
+    def reference_values(self, result: SkillResult) -> tuple[list[float], list[float]]:
+        """Giá/MA theo giá trị gốc; tỷ lệ và ngưỡng chỉ hợp lệ khi viết dạng % (khớp với khối prompt)."""
+        plain = [float(v) for k, v in result.facts.items() if k != "passed_count" and k not in self.PERCENT_FACTS]
+        percent = [result.facts[k] * 100 for k in self.PERCENT_FACTS if k in result.facts]
+        percent += [float(self.config[k]) * 100 for k in self.PERCENT_CONFIG]
+        return plain, percent
 
     def adjust(self, final: dict, result: SkillResult) -> list[str]:
         min_pass, cap = self.config["min_pass"], float(self.config["confidence_cap"])

@@ -53,10 +53,16 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
     skill_runs = skill_runs or []
     ok_runs = [(s, r) for s, r, _ in skill_runs if r is not None]
     skill_blocks = [format_skill_block(r, getattr(s, "playbook", "")) for s, r in ok_runs]
-    skill_refs = {f"{r.name}.{k}": v for _, r in ok_runs for k, v in r.facts.items()}
-    # Ngưỡng cấu hình xuất hiện trong nhãn tiêu chí (VD "cao hơn đáy 30.00%") cũng là số liệu hợp lệ
-    skill_refs.update({f"{s.name}.config.{k}": v for s, _ in ok_runs
-                       for k, v in (getattr(s, "config", None) or {}).items()})
+    # Số liệu hợp lệ cho S3 do từng skill khai báo: dạng gốc, và dạng % (chỉ khớp khi viết kèm "%")
+    skill_refs, skill_pct = {}, []
+    for s, r in ok_runs:
+        try:
+            plain, pct = s.reference_values(r)
+        except Exception:
+            logger.exception("%s: reference_values của skill %s lỗi", symbol, getattr(s, "name", "?"))
+            continue
+        skill_refs.update({f"{r.name}.{i}": v for i, v in enumerate(plain)})
+        skill_pct += pct
     record = {"symbol": symbol, "status": "OK", "metrics": metrics,
               "levels": [lv.to_dict() for lv in levels], "final": None, "analyst": None,
               "validation": None, "critic": None,
@@ -78,7 +84,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
     # 2. Validator
     if analyst is not None:
         analyst["result"]["symbol"] = symbol
-        v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs)
+        v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs, skill_pct)
         errors, warnings = v.errors, v.warnings
     attempts = 1
 
@@ -89,7 +95,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
         try:
             analyst = _call(generate, build_fix_prompt(base_prompt, previous, errors), AnalystResult)
             analyst["result"]["symbol"] = symbol
-            v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs)
+            v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs, skill_pct)
             errors, warnings = v.errors, v.warnings
         except Exception as exc:
             logger.warning("%s: lần sửa lỗi thất bại: %s", symbol, exc)
@@ -129,7 +135,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
                 final["signal"] = DOWNGRADE_SIGNAL
             red_flags += c["counter_arguments"]
             red_flags += check_text_numbers(c["counter_arguments"] + [c.get("reason", "")],
-                                            metrics, levels, fundamentals, skill_refs)
+                                            metrics, levels, fundamentals, skill_refs, skill_pct)
         except Exception as exc:
             logger.warning("%s: Critic lỗi: %s", symbol, exc)
             record["status"] = "CRITIC_FAILED"

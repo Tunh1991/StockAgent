@@ -21,9 +21,26 @@ def test_prompts_include_skill_block():
                                                                 skill_blocks=[block])
 
 
+def s3(text, res=None):
+    gen = FakeGenerate([analyst(signal="QUAN SAT", text=text)])
+    rec = run_pipeline("DXG", METRICS, LEVELS, gen, skill_runs=[(SKILL, res or result(), None)])
+    return [f for f in rec["final"]["red_flags"] if f.startswith("S3:")]
+
+
 def test_s3_skill_facts_ok():
-    r = validate(make(text="MA150 10.1, cách đỉnh 52 tuần 3.5%"), LEVELS, METRICS, extra_refs=FACTS)
-    assert not [w for w in r.warnings if w.startswith("S3:")]
+    assert s3("MA150 10.1, cách đỉnh 52 tuần 3.5%") == []
+
+
+def test_s3_threshold_as_price_flagged():
+    assert any("30.00" in f for f in s3("kháng cự 30.00"))
+
+
+def test_s3_price_fact_x100_not_reference():
+    assert any("985.0" in f for f in s3("mức 985.0"))
+
+
+def test_s3_passed_count_not_reference():
+    assert any("8.00" in f for f in s3("mục tiêu 8.00"))
 
 
 def test_s3_invented_ma200_flagged():

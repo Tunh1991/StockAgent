@@ -126,3 +126,14 @@ def test_adjust_never_raises_confidence():
 
 def test_playbook_loaded():
     assert "VN-Index" in SKILL.playbook and "T+2" in SKILL.playbook
+
+
+def test_config_range_checked(tmp_path):
+    s = custom(tmp_path, week52_bars=0, rs_lookback=-5, min_above_low=-0.1, max_below_high=1.5,
+               min_pass=9, confidence_cap=0.0, ma200_rising_days=0)
+    assert s.config == TrendTemplateSkill.DEFAULTS
+
+
+def test_config_valid_values_kept(tmp_path):
+    s = custom(tmp_path, week52_bars=200, min_above_low=10.0, max_below_high=0.1, min_pass=8, confidence_cap=5)
+    assert s.config["week52_bars"] == 200 and s.config["min_above_low"] == 10.0 and s.config["min_pass"] == 8
