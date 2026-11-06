@@ -1,0 +1,9 @@
+{
+  "ma200_rising_days": 22,
+  "min_above_low": 0.30,
+  "max_below_high": 0.25,
+  "week52_bars": 250,
+  "rs_lookback": 126,
+  "min_pass": 6,
+  "confidence_cap": 6.0
+}
