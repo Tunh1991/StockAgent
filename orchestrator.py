@@ -54,6 +54,9 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
     ok_runs = [(s, r) for s, r, _ in skill_runs if r is not None]
     skill_blocks = [format_skill_block(r, getattr(s, "playbook", "")) for s, r in ok_runs]
     skill_refs = {f"{r.name}.{k}": v for _, r in ok_runs for k, v in r.facts.items()}
+    # Ngưỡng cấu hình xuất hiện trong nhãn tiêu chí (VD "cao hơn đáy 30.00%") cũng là số liệu hợp lệ
+    skill_refs.update({f"{s.name}.config.{k}": v for s, _ in ok_runs
+                       for k, v in (getattr(s, "config", None) or {}).items()})
     record = {"symbol": symbol, "status": "OK", "metrics": metrics,
               "levels": [lv.to_dict() for lv in levels], "final": None, "analyst": None,
               "validation": None, "critic": None,

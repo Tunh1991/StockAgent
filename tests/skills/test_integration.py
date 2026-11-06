@@ -80,3 +80,9 @@ def test_adjust_cannot_raise_or_change_signal():
     gen = FakeGenerate([analyst(signal="QUAN SAT", confidence=4)])
     rec = run_pipeline("DXG", METRICS, LEVELS, gen, skill_runs=[(RaisingAdjust(), result(), None)])
     assert rec["final"]["confidence_score"] == 4 and rec["final"]["signal"] == "QUAN SAT"
+
+
+def test_s3_skill_thresholds_not_flagged():
+    gen = FakeGenerate([analyst(signal="QUAN SAT", text="cần cao hơn đáy 30.00%, cách đỉnh không quá 25.00%")])
+    rec = run_pipeline("DXG", METRICS, LEVELS, gen, skill_runs=[(SKILL, result(), None)])
+    assert not [f for f in rec["final"]["red_flags"] if f.startswith("S3:")]
