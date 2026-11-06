@@ -104,6 +104,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
             logger.warning("%s: Critic lỗi: %s", symbol, exc)
             record["status"] = "CRITIC_FAILED"
             final["signal"] = DOWNGRADE_SIGNAL
+            final["confidence_score"] = min(final["confidence_score"], DOWNGRADE_MAX_CONFIDENCE)
             red_flags.append("Chưa được phản biện (Critic lỗi)")
 
     final["red_flags"] = _dedupe(red_flags)

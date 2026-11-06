@@ -44,3 +44,8 @@ def test_pipeline_passes_fundamentals():
     gen = FakeGenerate([analyst(signal="QUAN SAT")])
     run_pipeline("DXG", METRICS, LEVELS, gen, fundamentals=FUND)
     assert "DỮ LIỆU CƠ BẢN" in gen.prompts[0]
+
+
+def test_m7_block_shows_rejected_period():
+    b = format_fundamentals_block({**FUND, "rejected_period": "2026Q4"}, TODAY)
+    assert "2026Q4" in b and "bị loại" in b

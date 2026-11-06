@@ -86,3 +86,17 @@ def test_no_fundamentals_file(env, monkeypatch):
     monkeypatch.setattr(main.store, "load", lambda s: None)
     run(set())
     assert seen["f"] is None
+
+
+def test_m5_analyst_failures_capped_per_day(env, monkeypatch):
+    install, _ = env
+    calls = {"n": 0}
+
+    def fake_pipeline(symbol, metrics, levels, generate, fundamentals=None):
+        calls["n"] += 1
+        return {"symbol": symbol, "status": "ANALYST_FAILED", "final": None}
+    monkeypatch.setattr(main, "run_pipeline", fake_pipeline)
+    analyzed, failures = set(), {}
+    for _ in range(5):
+        main.run_scan(["DXG"], analyzed, dry_run=False, force=False, failures=failures)
+    assert calls["n"] == main.MAX_DAILY_FAILURES

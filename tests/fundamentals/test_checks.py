@@ -58,3 +58,9 @@ def test_shares_out_of_range():
 def test_period_mismatch():
     ex = make_extraction(period_end="2026-06-30")
     assert codes(run_checks(ex, ex, "2026Q3")[1], "F6")
+
+
+def test_m3_cost_sign_differs_between_runs():
+    a = make_extraction(IS11={"current": -1.5e12})
+    b = make_extraction()
+    assert not codes(run_checks(a, b, "2026Q3")[1], "F1")

@@ -131,3 +131,8 @@ def test_critic_numbers_checked():
     gen = FakeGenerate([analyst(confidence=8), critic("GIAM_TIN_CAY", -1.0, ["Dư địa tăng chỉ 3.3%"])])
     flags = run(gen)["final"]["red_flags"]
     assert any(f.startswith("S3:") and "3.3" in f for f in flags)
+
+
+def test_m4_critic_error_caps_confidence():
+    gen = FakeGenerate([analyst(confidence=9), RuntimeError("down")])
+    assert run(gen)["final"]["confidence_score"] == 5.0

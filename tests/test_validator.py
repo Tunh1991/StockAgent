@@ -100,3 +100,22 @@ def test_s3_negative_numbers_ok():
 def test_s3_scans_fundamental_text_without_data():
     s3 = codes(run(make(fundamental="P/E 8.5 hấp dẫn")).warnings, "S3")
     assert s3 and "8.5" in s3[0]
+
+
+def test_m1_thousands_separator_ok():
+    fund = {"eps_ttm": 3450.0, "revenue_ttm": 8.5e12}
+    r = validate(make(fundamental="EPS 3.450 đồng, EPS 3,450 đồng"), LEVELS, METRICS, fund)
+    assert not codes(r.warnings, "S3")
+
+
+def test_m1_thousands_separator_invented_flagged():
+    r = validate(make(fundamental="EPS 9.999 đồng"), LEVELS, METRICS, {"eps_ttm": 3450.0})
+    assert codes(r.warnings, "S3")
+
+
+def test_m2_rounded_value_ok():
+    assert not codes(run(make(text="MACD 0.04, Histogram 0.11, RSI 64.80")).warnings, "S3")
+
+
+def test_m2_rounding_does_not_hide_invention():
+    assert codes(run(make(text="mục tiêu 13.4")).warnings, "S3")

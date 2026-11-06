@@ -114,3 +114,25 @@ def test_annual_kept_when_quarter_fails_first_run(tmp_path):
     job.run_job(bctc, data, SECTORS, FakeExtract())
     rec = store.load("DXG", data)
     assert rec["status"] == "OK" and rec["annual_period"] == "2025FY" and rec["ratios"]["eps_ttm"] is not None
+
+
+def test_m6_q4_skips_annual(tmp_path):
+    bctc, data = setup(tmp_path, names=("2026Q4.pdf", "2025FY.pdf"))
+    quarter, annual, _ = job.select_files(bctc / "DXG")
+    assert quarter[1] == "2026Q4" and annual is None
+    fx = FakeExtract()
+    job.run_job(bctc, data, SECTORS, fx)
+    assert "2025FY" not in fx.calls
+
+
+def test_m7_rejected_newer_quarter_flagged(tmp_path):
+    bctc, data = setup(tmp_path)
+    job.run_job(bctc, data, SECTORS, FakeExtract())
+    (bctc / "DXG" / "2026Q3.pdf").unlink()
+    (bctc / "DXG" / "2026Q4.pdf").write_bytes(b"q4")
+    bad = make_extraction("2026Q4", IS20={"current": 1.0})
+    job.run_job(bctc, data, SECTORS, FakeExtract({"2026Q4": [bad] * 4}))
+    rec = store.load("DXG", data)
+    assert rec["period"] == "2026Q3" and rec["rejected_period"] == "2026Q4"
+    job.run_job(bctc, data, SECTORS, FakeExtract())  # cùng file -> bỏ qua, cờ vẫn còn
+    assert store.load("DXG", data)["rejected_period"] == "2026Q4"

@@ -43,6 +43,7 @@ WATCHLIST = [s.strip().upper() for s in os.getenv(
 SCAN_INTERVAL_MIN = float(os.getenv("SCAN_INTERVAL_MIN", "4"))
 DATA_MIN_INTERVAL_SEC = float(os.getenv("DATA_MIN_INTERVAL_SEC", "0.5"))
 HISTORY_BARS = 160  # đủ cho HIGH_120
+MAX_DAILY_FAILURES = int(os.getenv("MAX_DAILY_FAILURES", "3"))  # số lần Analyst lỗi tối đa/mã/ngày
 SIGNALS_FILE = BASE_DIR / "signals.jsonl"
 
 data_limiter = llm.RateLimiter(DATA_MIN_INTERVAL_SEC)
@@ -108,7 +109,8 @@ def load_fundamentals(symbol: str, close: float) -> dict | None:
     if not rec or not rec.get("ratios"):
         return None
     return {**rec["ratios"], **valuation(rec["ratios"], close),
-            "period": rec.get("period"), "period_end": rec.get("period_end")}
+            "period": rec.get("period"), "period_end": rec.get("period_end"),
+            "rejected_period": rec.get("rejected_period")}
 
 
 def save_signal(record: dict) -> None:
@@ -116,13 +118,17 @@ def save_signal(record: dict) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def run_scan(symbols: list[str], analyzed_today: set, dry_run: bool, force: bool) -> None:
+def run_scan(symbols: list[str], analyzed_today: set, dry_run: bool, force: bool,
+             failures: dict | None = None) -> None:
+    failures = {} if failures is None else failures
     now = now_vn()
     logger.info("Quét %d mã lúc %s", len(symbols), now.strftime("%H:%M"))
     for symbol in symbols:
         key = (symbol, now.date())
         if key in analyzed_today and not force:
             continue  # mỗi mã chỉ phân tích 1 lần/ngày để tiết kiệm hạn ngạch
+        if failures.get(key, 0) >= MAX_DAILY_FAILURES and not force:
+            continue  # Gemini lỗi liên tục: ngừng thử mã này trong hôm nay để giữ hạn ngạch
         try:
             scanned = scan_symbol(symbol, now, force)
         except Exception:
@@ -141,7 +147,8 @@ def run_scan(symbols: list[str], analyzed_today: set, dry_run: bool, force: bool
         fundamentals = load_fundamentals(symbol, metrics["close"])
         record = run_pipeline(symbol, metrics, levels, llm.generate, fundamentals=fundamentals)
         if record["status"] == "ANALYST_FAILED":
-            logger.error("%s: Analyst lỗi, sẽ thử lại ở lượt quét sau", symbol)
+            failures[key] = failures.get(key, 0) + 1
+            logger.error("%s: Analyst lỗi (%d/%d lần hôm nay)", symbol, failures[key], MAX_DAILY_FAILURES)
             continue
 
         analyzed_today.add(key)
@@ -168,16 +175,17 @@ def main() -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
     symbols = [s.upper() for s in args.symbols] if args.symbols else WATCHLIST
     analyzed_today: set = set()
+    failures: dict = {}
 
     if args.once:
-        run_scan(symbols, analyzed_today, args.dry_run, args.force)
+        run_scan(symbols, analyzed_today, args.dry_run, args.force, failures)
         return
 
     logger.info("Bắt đầu quét liên tục: %s (mỗi %.0f phút, 9h00-14h45)", ", ".join(symbols), SCAN_INTERVAL_MIN)
     try:
         while True:
             if is_trading_time(now_vn()):
-                run_scan(symbols, analyzed_today, args.dry_run, args.force)
+                run_scan(symbols, analyzed_today, args.dry_run, args.force, failures)
                 time.sleep(SCAN_INTERVAL_MIN * 60)
             else:
                 time.sleep(60)

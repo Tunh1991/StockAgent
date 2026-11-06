@@ -119,6 +119,9 @@ def format_fundamentals_block(f: dict | None, today: date) -> str:
             lines.append(f"⚠ Dữ liệu cơ bản đã cũ (kỳ {f.get('period')}, {age} ngày trước)")
     except ValueError:
         pass
+    if f.get("rejected_period"):
+        lines.append(f"⚠ BCTC kỳ {f['rejected_period']} bị loại khi kiểm tra tự động; "
+                     f"đang dùng số liệu kỳ {f.get('period')}")
     for key, label, kind in _FUND_FIELDS:
         value = f.get(key)
         if isinstance(value, (int, float)):
@@ -145,6 +148,8 @@ def build_analyst_prompt(symbol: str, metrics: dict, levels, fundamentals: dict 
 QUY TẮC BẮT BUỘC:
 - Chỉ sử dụng các số liệu được cung cấp bên dưới. KHÔNG tự tính lại, KHÔNG bịa mốc giá hay số liệu tài chính.
 - Đơn vị giá: nghìn đồng (VD: 21.2 = 21.200 VNĐ).
+- Khi trích số liệu vào phần chữ, viết đúng như dữ liệu đầu vào, không dùng dấu phân cách nghìn
+  (viết 31627400 hoặc 31.63 triệu, không viết 31.627.400). Không tự tính số mới (%, chênh lệch).
 - Mỗi mốc trong plan (entry_low, entry_high, stop_loss, target_1, target_2) chỉ được chọn mốc trong bảng:
   ghi đúng tên mốc vào "level" và đúng giá vào "price". Mốc phải thuộc đúng nhóm.
 - Thứ tự bắt buộc: stop_loss < entry_low <= entry_high < target_1 < target_2. target_2 có thể để null.
@@ -182,7 +187,8 @@ def build_critic_prompt(symbol: str, metrics: dict, levels, analyst: dict, warni
 trên thị trường chứng khoán Việt Nam. Nhiệm vụ: tìm các lý do KHÔNG nên mua.
 
 QUY TẮC:
-- Chỉ sử dụng số liệu được cung cấp bên dưới, không bịa số liệu.
+- Chỉ sử dụng số liệu được cung cấp bên dưới, không bịa số liệu, không tự tính số mới (%, chênh lệch),
+  không dùng dấu phân cách nghìn.
 - Bạn chỉ được GIỮ NGUYÊN, GIẢM độ tin cậy hoặc HẠ CẤP; không được tăng.
   confidence_adjustment từ -5.0 đến 0. verdict: GIU_NGUYEN, GIAM_TIN_CAY hoặc HA_CAP
   (HA_CAP = chuyển khuyến nghị xuống QUAN SAT).

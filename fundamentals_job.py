@@ -51,8 +51,9 @@ def select_files(symbol_dir: Path):
             quarters.append(((year, int(kind[1])), (f, f"{year}{kind}")))
     if not quarters:
         return None, None, warnings
-    (year, _), quarter = max(quarters)
-    return quarter, annuals.get(year - 1), warnings
+    (year, q), quarter = max(quarters)
+    # Q4: lũy kế của quý 4 đã là cả năm, TTM không cần BCTC năm trước -> không tốn lượt gọi Gemini
+    return quarter, (None if q == 4 else annuals.get(year - 1)), warnings
 
 
 def process_file(path: Path, period: str, extract_fn):
@@ -130,6 +131,13 @@ def run_job(bctc_dir: Path, data_dir: Path, sectors: dict[str, str], extract_fn)
         q_period, a_period = quarter[1], annual[1] if annual else None
         q_ex = new_ok.get("quarter") or stored(quarter)
         a_ex = new_ok.get("annual") or stored(annual)
+
+        # Đánh dấu khi BCTC quý đang chọn bị loại, để main/Analyst biết đang dùng số liệu kỳ cũ
+        q_src = rec["sources"].get(quarter[0].name)
+        if q_src and q_src["status"] == "REJECTED":
+            rec["rejected_period"] = q_period
+        elif q_ex is not None:
+            rec.pop("rejected_period", None)
 
         if new_ok and q_ex is not None:
             rec.update({

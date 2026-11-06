@@ -28,6 +28,8 @@ def compare_runs(a: Extraction, b: Extraction) -> list[str]:
         ia, ib = a.get(code), b.get(code)
         for col in COLUMNS:
             va, vb = getattr(ia, col), getattr(ib, col)
+            if code in ABS_CODES and va is not None and vb is not None:
+                va, vb = abs(va), abs(vb)  # giá vốn/giảm trừ: dấu phụ thuộc cách in ngoặc, không phải lỗi đọc
             if (va is None) != (vb is None) or (va is not None and not values_match(va, vb)):
                 errors.append(f"F1: {code} cột {col} lệch giữa 2 lần trích: {va} ≠ {vb}")
     return errors

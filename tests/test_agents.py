@@ -28,7 +28,8 @@ def test_critic_adjustment_positive_rejected():
 def test_analyst_prompt_lists_levels_by_group():
     p = build_analyst_prompt("DXG", METRICS, LEVELS)
     for s in ("ATR_T2", "11.6", "entry", "stop", "target",
-              "Chưa có dữ liệu cơ bản - cần kiểm tra BCTC", "chỉ được chọn mốc trong bảng"):
+              "Chưa có dữ liệu cơ bản - cần kiểm tra BCTC", "chỉ được chọn mốc trong bảng",
+              "không dùng dấu phân cách nghìn"):
         assert s in p
 
 

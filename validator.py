@@ -19,7 +19,10 @@ RSI_OVERBOUGHT = 75
 BUY = "MUA GOM"
 _PLAN_FIELDS = {"entry_low": "entry", "entry_high": "entry", "stop_loss": "stop",
                 "target_1": "target", "target_2": "target"}
-_NUMBER_RE = re.compile(r"[-−]?\d+[.,]\d+")
+# Số có phần thập phân hoặc dấu phân cách nghìn; dấu âm chỉ tính khi không đứng ngay sau chữ số
+# (để "10.5-10.8" là khoảng giá, không phải số âm)
+_NUMBER_RE = re.compile(r"(?:(?<!\d)[-−])?\d+(?:[.,]\d+)+")
+_GROUPED_RE = re.compile(r"\d{1,3}(?:[.,]\d{3})+")
 
 
 @dataclass
@@ -58,12 +61,36 @@ def _reference_values(metrics: dict, levels, extra: dict | None = None) -> list[
     return [v for v in values if v != 0]
 
 
+def _interpretations(raw: str) -> list[tuple[float, int]]:
+    """Các cách hiểu một số viết trong văn bản: (giá trị, số chữ số thập phân đã viết)."""
+    sign = -1 if raw[0] in "-−" else 1
+    body = raw.lstrip("-−")
+    seps = re.findall(r"[.,]", body)
+    out = []
+    if len(seps) == 1:  # 10.8 hoặc 10,8
+        whole, frac = re.split(r"[.,]", body)
+        out.append((float(f"{whole}.{frac}"), len(frac)))
+    if _GROUPED_RE.fullmatch(body):  # 3.450 hoặc 8.500.000 (phân cách nghìn kiểu Việt Nam / Mỹ)
+        out.append((float(re.sub(r"[.,]", "", body)), 0))
+    if len(set(seps)) == 2:  # 1.234,5 hoặc 1,234.5: dấu cuối là thập phân
+        last = max(body.rfind("."), body.rfind(","))
+        frac = body[last + 1:]
+        out.append((float(re.sub(r"[.,]", "", body[:last]) + "." + frac), len(frac)))
+    return [(sign * v, d) for v, d in out]
+
+
+def _matches(num: float, decimals: int, ref: float) -> bool:
+    if _close_enough(num, ref):
+        return True
+    # Cho phép làm tròn: "0.04" khớp với 0.0422, nhưng chỉ ở đúng số chữ số thập phân đã viết
+    return decimals > 0 and abs(round(ref, decimals) - num) < 10 ** -(decimals + 3)
+
+
 def _check_text_numbers(texts: list[str], refs: list[float]) -> list[str]:
     warnings, seen = [], set()
     for text in texts:
         for raw in _NUMBER_RE.findall(text or ""):
-            num = float(raw.replace(",", ".").replace("−", "-"))
-            if raw in seen or any(_close_enough(num, r) for r in refs):
+            if raw in seen or any(_matches(n, d, r) for n, d in _interpretations(raw) for r in refs):
                 continue
             seen.add(raw)
             warnings.append(f"S3: Số liệu không có trong dữ liệu đầu vào: {raw}")
