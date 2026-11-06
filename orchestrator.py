@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from agents import (AnalystResult, CriticResult, build_analyst_prompt, build_critic_prompt,
                     build_fix_prompt)
+from skills.base import format_skill_block
 from validator import BUY, check_text_numbers, validate
 
 logger = logging.getLogger("stock_agent.orchestrator")
@@ -28,11 +29,37 @@ def _call(generate, prompt: str, schema: type[BaseModel]) -> dict:
     return {"result": res.parsed.model_dump(mode="json"), "model": res.model, "latency_sec": res.latency_sec}
 
 
-def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundamentals: dict | None = None) -> dict:
+def _apply_skill_adjustments(symbol: str, final: dict, ok_runs: list) -> list[str]:
+    """Gọi adjust của từng skill; bất biến: không được tăng độ tin cậy, không được đổi tín hiệu."""
+    notes = []
+    for skill, res in ok_runs:
+        before = (final["confidence_score"], final["signal"])
+        try:
+            got = list(skill.adjust(final, res) or [])
+        except Exception:
+            logger.exception("%s: adjust của skill %s lỗi", symbol, skill.name)
+            final["confidence_score"], final["signal"] = before
+            continue
+        if final["confidence_score"] > before[0] or final["signal"] != before[1]:
+            logger.error("%s: skill %s vi phạm bất biến adjust, khôi phục", symbol, skill.name)
+            final["confidence_score"], final["signal"] = before
+            continue
+        notes += got
+    return notes
+
+
+def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundamentals: dict | None = None,
+                 skill_runs: list | None = None) -> dict:
+    skill_runs = skill_runs or []
+    ok_runs = [(s, r) for s, r, _ in skill_runs if r is not None]
+    skill_blocks = [format_skill_block(r, getattr(s, "playbook", "")) for s, r in ok_runs]
+    skill_refs = {f"{r.name}.{k}": v for _, r in ok_runs for k, v in r.facts.items()}
     record = {"symbol": symbol, "status": "OK", "metrics": metrics,
               "levels": [lv.to_dict() for lv in levels], "final": None, "analyst": None,
-              "validation": None, "critic": None}
-    base_prompt = build_analyst_prompt(symbol, metrics, levels, fundamentals)
+              "validation": None, "critic": None,
+              "skills": [r.to_dict() if r is not None else {"name": s.name, "error": e} for s, r, e in skill_runs],
+              "skill_adjustments": []}
+    base_prompt = build_analyst_prompt(symbol, metrics, levels, fundamentals, skill_blocks=skill_blocks)
 
     # 1. Analyst
     analyst, errors, warnings = None, [], []
@@ -48,7 +75,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
     # 2. Validator
     if analyst is not None:
         analyst["result"]["symbol"] = symbol
-        v = validate(analyst["result"], levels, metrics, fundamentals)
+        v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs)
         errors, warnings = v.errors, v.warnings
     attempts = 1
 
@@ -59,7 +86,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
         try:
             analyst = _call(generate, build_fix_prompt(base_prompt, previous, errors), AnalystResult)
             analyst["result"]["symbol"] = symbol
-            v = validate(analyst["result"], levels, metrics, fundamentals)
+            v = validate(analyst["result"], levels, metrics, fundamentals, skill_refs)
             errors, warnings = v.errors, v.warnings
         except Exception as exc:
             logger.warning("%s: lần sửa lỗi thất bại: %s", symbol, exc)
@@ -89,7 +116,7 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
     elif final["signal"] == BUY:
         try:
             critic = _call(generate, build_critic_prompt(symbol, metrics, levels, result, warnings,
-                                                            fundamentals), CriticResult)
+                                                            fundamentals, skill_blocks=skill_blocks), CriticResult)
             record["critic"] = critic
             c = critic["result"]
             # 5. Quyết định cuối: Critic chỉ được giảm, không được tăng
@@ -99,13 +126,17 @@ def run_pipeline(symbol: str, metrics: dict, levels, generate: Callable, fundame
                 final["signal"] = DOWNGRADE_SIGNAL
             red_flags += c["counter_arguments"]
             red_flags += check_text_numbers(c["counter_arguments"] + [c.get("reason", "")],
-                                            metrics, levels, fundamentals)
+                                            metrics, levels, fundamentals, skill_refs)
         except Exception as exc:
             logger.warning("%s: Critic lỗi: %s", symbol, exc)
             record["status"] = "CRITIC_FAILED"
             final["signal"] = DOWNGRADE_SIGNAL
             final["confidence_score"] = min(final["confidence_score"], DOWNGRADE_MAX_CONFIDENCE)
             red_flags.append("Chưa được phản biện (Critic lỗi)")
+
+    # 6. Luật điều chỉnh của skill (sau mọi luật hạ cấp/giới hạn ở trên)
+    record["skill_adjustments"] = _apply_skill_adjustments(symbol, final, ok_runs)
+    red_flags += record["skill_adjustments"]
 
     final["red_flags"] = _dedupe(red_flags)
     record["final"] = final

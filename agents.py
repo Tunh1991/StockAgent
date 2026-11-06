@@ -139,8 +139,12 @@ def _fundamental_rule(fundamentals: dict | None) -> str:
             "  (cùng đơn vị %, lần, tỷ đồng), không tự tính chỉ số mới. Nếu dữ liệu đã cũ, phải nói rõ.")
 
 
+def _skills_section(blocks: list[str] | None) -> str:
+    return "\n\n".join(blocks) + "\n" if blocks else ""
+
+
 def build_analyst_prompt(symbol: str, metrics: dict, levels, fundamentals: dict | None = None,
-                         today: date | None = None) -> str:
+                         today: date | None = None, skill_blocks: list[str] | None = None) -> str:
     today = today or date.today()
     return f"""Bạn là chuyên gia phân tích kỹ thuật và dòng tiền thị trường chứng khoán Việt Nam (HOSE/HNX/UPCOM).
 Đánh giá tín hiệu kỹ thuật sau và lập kế hoạch giao dịch T+.
@@ -163,6 +167,7 @@ QUY TẮC BẮT BUỘC:
 {_levels_block(levels)}
 
 {format_fundamentals_block(fundamentals, today)}
+{_skills_section(skill_blocks)}
 """
 
 
@@ -180,7 +185,8 @@ KẾT QUẢ TRÊN VI PHẠM CÁC LỖI SAU, HÃY SỬA VÀ TRẢ LẠI TOÀN B�
 
 
 def build_critic_prompt(symbol: str, metrics: dict, levels, analyst: dict, warnings: list[str],
-                        fundamentals: dict | None = None, today: date | None = None) -> str:
+                        fundamentals: dict | None = None, today: date | None = None,
+                        skill_blocks: list[str] | None = None) -> str:
     today = today or date.today()
     warn_lines = "\n".join(f"- {w}" for w in warnings) or "- (không có)"
     return f"""Bạn là chuyên gia quản trị rủi ro, đóng vai người phản biện một khuyến nghị MUA GOM
@@ -199,6 +205,7 @@ QUY TẮC:
 {_levels_block(levels)}
 
 {format_fundamentals_block(fundamentals, today)}
+{_skills_section(skill_blocks)}
 
 CẢNH BÁO TỪ BỘ KIỂM TRA TỰ ĐỘNG:
 {warn_lines}

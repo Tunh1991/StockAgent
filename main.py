@@ -21,7 +21,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import llm  # đọc .env khi import
-from data_loader import get_stock_history
+from data_loader import get_index_history, get_stock_history
 from indicators import (
     MIN_BARS,
     check_breakout_trigger,
@@ -33,6 +33,8 @@ from indicators import (
 from fundamentals import store
 from fundamentals.ratios import valuation
 from orchestrator import run_pipeline
+from skills import load_skills
+from skills.base import SkillContext, run_skills
 
 BASE_DIR = Path(__file__).resolve().parent
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -42,8 +44,9 @@ WATCHLIST = [s.strip().upper() for s in os.getenv(
     "WATCHLIST", "HPG,SSI,FPT,VCB,TCB,MWG,VNM,DXG").split(",") if s.strip()]
 SCAN_INTERVAL_MIN = float(os.getenv("SCAN_INTERVAL_MIN", "4"))
 DATA_MIN_INTERVAL_SEC = float(os.getenv("DATA_MIN_INTERVAL_SEC", "0.5"))
-HISTORY_BARS = 160  # đủ cho HIGH_120
-MAX_DAILY_FAILURES = int(os.getenv("MAX_DAILY_FAILURES", "3"))  # số lần Analyst lỗi tối đa/mã/ngày
+HISTORY_BARS = 300  # đủ cho MA200 + 22 phiên và đỉnh/đáy 52 tuần (Trend Template)
+MAX_DAILY_FAILURES = int(os.getenv("MAX_DAILY_FAILURES", "3"))
+SKILLS = load_skills(os.getenv("SKILLS", "").split(","))  # skill chuyên gia đang bật  # số lần Analyst lỗi tối đa/mã/ngày
 SIGNALS_FILE = BASE_DIR / "signals.jsonl"
 
 data_limiter = llm.RateLimiter(DATA_MIN_INTERVAL_SEC)
@@ -78,7 +81,7 @@ def latest_metrics(df) -> dict:
 
 
 def scan_symbol(symbol: str, now: datetime, force: bool = False):
-    """Trả về (metrics, levels) nếu có tín hiệu (hoặc force), ngược lại None."""
+    """Trả về (metrics, levels, df chỉ báo) nếu có tín hiệu (hoặc force), ngược lại None."""
     data_limiter.wait()
     df = get_stock_history(symbol, count=HISTORY_BARS)
     if len(df) < MIN_BARS:
@@ -96,7 +99,7 @@ def scan_symbol(symbol: str, now: datetime, force: bool = False):
         metrics = latest_metrics(ind)
     if metrics is None:
         return None
-    return metrics, price_levels(ind)
+    return metrics, price_levels(ind), ind
 
 
 def load_fundamentals(symbol: str, close: float) -> dict | None:
@@ -123,6 +126,14 @@ def run_scan(symbols: list[str], analyzed_today: set, dry_run: bool, force: bool
     failures = {} if failures is None else failures
     now = now_vn()
     logger.info("Quét %d mã lúc %s", len(symbols), now.strftime("%H:%M"))
+    index_cache: dict = {}
+
+    def index_df():
+        """VN-Index chỉ lấy 1 lần cho mỗi lượt quét, khi có skill cần đến."""
+        if "df" not in index_cache:
+            df = get_index_history("VNINDEX", HISTORY_BARS)
+            index_cache["df"] = None if df is None or df.empty else df
+        return index_cache["df"]
     for symbol in symbols:
         key = (symbol, now.date())
         if key in analyzed_today and not force:
@@ -138,14 +149,17 @@ def run_scan(symbols: list[str], analyzed_today: set, dry_run: bool, force: bool
             logger.info("%s: không có tín hiệu", symbol)
             continue
 
-        metrics, levels = scanned
+        metrics, levels, ind = scanned
         logger.info("%s: TÍN HIỆU %s | %s", symbol, metrics["trigger_reasons"],
                     json.dumps(metrics, ensure_ascii=False))
         if dry_run:
             continue
 
         fundamentals = load_fundamentals(symbol, metrics["close"])
-        record = run_pipeline(symbol, metrics, levels, llm.generate, fundamentals=fundamentals)
+        skill_runs = (run_skills(SKILLS, SkillContext(symbol, ind, metrics, fundamentals, index_df()))
+                      if SKILLS else [])
+        record = run_pipeline(symbol, metrics, levels, llm.generate, fundamentals=fundamentals,
+                              skill_runs=skill_runs)
         if record["status"] == "ANALYST_FAILED":
             failures[key] = failures.get(key, 0) + 1
             logger.error("%s: Analyst lỗi (%d/%d lần hôm nay)", symbol, failures[key], MAX_DAILY_FAILURES)

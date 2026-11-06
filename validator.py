@@ -43,16 +43,17 @@ def _fmt_group(levels, group: str) -> str:
     return ", ".join(f"{lv.name}={lv.price}" for lv in levels if group in lv.groups) or "(không có)"
 
 
-def _reference_values(metrics: dict, levels, extra: dict | None = None) -> list[float]:
-    values = []
-    for source in (metrics, extra or {}):
-        for v in source.values():
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                values.append(float(v))
+def _nums(d: dict | None) -> list[float]:
+    return [float(v) for v in (d or {}).values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+
+
+def _reference_values(metrics: dict, levels, extra: dict | None = None,
+                      extra_refs: dict | None = None) -> list[float]:
+    values = _nums(metrics) + _nums(extra) + _nums(extra_refs)
     # Số liệu cơ bản có thể được viết dạng % (×100) hoặc tỷ đồng (÷1e9)
-    for v in (extra or {}).values():
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            values += [v * 100, v / 1e9]
+    values += [x for v in _nums(extra) for x in (v * 100, v / 1e9)]
+    # Số liệu của skill (tỷ lệ) có thể được viết dạng %
+    values += [v * 100 for v in _nums(extra_refs)]
     values += [lv.price for lv in levels]
     for key in ("volume", "vol_projected", "vol_ma20"):
         v = metrics.get(key)
@@ -97,7 +98,8 @@ def _check_text_numbers(texts: list[str], refs: list[float]) -> list[str]:
     return warnings
 
 
-def validate(analysis: dict, levels, metrics: dict, fundamentals: dict | None = None) -> ValidationResult:
+def validate(analysis: dict, levels, metrics: dict, fundamentals: dict | None = None,
+             extra_refs: dict | None = None) -> ValidationResult:
     result = ValidationResult()
     errors, warnings = result.errors, result.warnings
     by_name = {lv.name: lv for lv in levels}
@@ -160,10 +162,11 @@ def validate(analysis: dict, levels, metrics: dict, fundamentals: dict | None = 
     # S3: số liệu trong phần chữ
     texts = ([analysis.get("orderflow_analysis", ""), analysis.get("fundamental_analysis", "")]
              + list(analysis.get("red_flags") or []))
-    warnings.extend(check_text_numbers(texts, metrics, levels, fundamentals))
+    warnings.extend(check_text_numbers(texts, metrics, levels, fundamentals, extra_refs))
     return result
 
 
-def check_text_numbers(texts: list[str], metrics: dict, levels, fundamentals: dict | None = None) -> list[str]:
+def check_text_numbers(texts: list[str], metrics: dict, levels, fundamentals: dict | None = None,
+                       extra_refs: dict | None = None) -> list[str]:
     """S3 cho một danh sách đoạn văn bất kỳ (dùng cả cho counter_arguments của Critic)."""
-    return _check_text_numbers(texts, _reference_values(metrics, levels, fundamentals))
+    return _check_text_numbers(texts, _reference_values(metrics, levels, fundamentals, extra_refs))
